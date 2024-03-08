@@ -1,175 +1,65 @@
-from fastapi import FastAPI,HTTPException,Body
-import requests
-from json import JSONDecodeError
-from datetime import datetime
+from fastapi import FastAPI,HTTPException,Body,Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from datetime import timedelta
 import base64
-from typing import Annotated,Optional,List
-from pydantic import BaseModel,Field,model_validator
+from datetime import timedelta
+from typing import Annotated
+
+from modelos.esquemas import *
+from modelos.cliente import *
+from modelos.mylogin import *
+
 app = FastAPI()
 
+#--------------------------------------------------MI LOGIN---------------------------------------------------------------------------------------#
 
-class Cotizar(BaseModel):
-    anio:str
-    iva: str
-    ceroKM:str
-    fechaVigencia:str = Field(datetime.now().strftime('%d/%m/%Y'))
-    codInfoAuto: str
-    codigoPostal: str
-    gnc: str
-    modalidad: str
-    productor:str
-    uso: str
-    modelo: str
-    marca:str
-    version:str
+@app.post("/token",tags=["Login"])
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
+) -> Token:
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return Token(access_token=access_token, token_type="bearer")
 
-#---------------------------------------------------------------------------------------------------------------------------------------------------#
+@app.get("/users/me/", response_model=User,tags=["Login"])
+async def read_users_me(
+    current_user: Annotated[User, Depends(get_current_active_user)]
+):
+    return current_user
 
-
-
-class Emitir(BaseModel):
-    presupuesto:str #-----
-    productor:str #-----
-    apellido:str #----
-    nombres:str #----
-    tipoDocumento:str #pendiente
-    numeroDocumento:str
-    sexo:str    #pendiente
-    fechaNacimiento: str 
-    posicionIva:str 
-    email:str 
-    prefijo:str 
-    telefono:str 
-    calle:str 
-    numero:str 
-    piso:str
-    departamento:str
-    codigoPostal:str
-    identificador:str
-    plan:str #pendiente
-    patente:str 
-    chasis:str
-    motor:str 
-    fechaVigencia:str = Field(datetime.now().strftime('%d/%m/%Y'))
-    ddjj:str 
-    porcentajeModalidad:str
-    pep:str 
-#---------------formaCobro-------------------#    
-    formaCobro: str | None = None #----
-    titular: str | None = None
-    gestor:str | None = None #----
-    cbu: str |None = None
-    tarjeta: str |None = None #----
-    nroTarjeta:str |None = None
-    fechaVencimiento: str | None = None
-
-
-#model validator
-    @model_validator(mode='after')
-    def check(cls, values):
-        for k, v in values:
-            if not v:
-                delattr(values, k)
-        return values
- 
-
-
-#-----------------------------------------------------------------------------------------------------------------------------------------------------#
-
-@app.post("/login",tags=["login-controller"])
-async def login(password:str,user:str):
-    usuario = {
-        "password": password,
-        "user": "wokan"
-    }
-    url = "https://autos-test.apiexperta.com.ar/login"
-    r = requests.post(url,json=usuario)
-    print(r.json())
-    return r.json()
-
-#-----------------------------------------------------------------------------------------------------------------------------------------------------#
-    
-class Cliente():
-    url = 'https://autos-test.apiexperta.com.ar/'
-    password = '$3XP3rt4*BR0k3R'
-    username = 'wokan'
-    headers = {'api-key': '45dca47e-1e76-4c80-8757-48c8e3d03650'}
-
-    def login(self):
-        try:
-            usuario = {
-                "password": self.password,
-                "user": self.username,
+#--------------------------------------------------------COTIZACIONES-----------------------------------------------------------------------#
+@app.post("/cotizaciones", tags=["cotizacion-controller"])
+async def cotizaciones(
+    cotizar: Annotated[Cotizar, Body(
+        examples=[
+            {
+                "anio": "2013",
+                "iva": "5",
+                "ceroKM": "N",
+                "fechaVigencia": "27/02/2024",
+                "codInfoAuto": "0120444",
+                "codigoPostal": "5000",
+                "gnc": "N",
+                "modalidad": "EX0",
+                "productor": "972",
+                "uso": "1",
+                "modelo": "CRUZE",
+                "marca": "CHEVROLET",
+                "version": "0120444"
             }
-            path = "login"
-
-            r = requests.post(f'{self.url}{path}', json=usuario)
-        
-            r.raise_for_status()
-            x=r.json()
-            self.headers['Authorization'] = f"Bearer {x['jwt']}"
-            return True
-        except requests.RequestException as e:
-            print(f"Error en la solicitud: {e}")                        
-
-    
-    def post(self, path, payload):
-        r = requests.post(f'{self.url}{path}', headers=self.headers, json=payload)
-        print(r.text)
-
-        if r.status_code != 200:
-            raise HTTPException(status_code=400,detail=r.text)
-        try:
-            return r.json()
-        
-        except requests.RequestException as e:
-            print(f"datos incorrectos{e.response.text}")
-    
-
-    def get(self, path, params:str | None = None):
-        
-            r = requests.get(f'{self.url}{path}', headers=self.headers,params=params)
-            if r.status_code != 200:
-                raise HTTPException(status_code=400,detail=r.text)
-            try:  
-                return r.json()
-            except requests.RequestException as e:
-                print(f"aca hay un error{e.response}")
-
-
-    def custom_get(self, path, params:str | None = None):
-        try:
-            r = requests.get(f'{self.url}{path}', headers=self.headers,params=params)
-            r.raise_for_status()
-
-            return r.content
-        except requests.RequestException as e:
-            raise HTTPException(status_code=400,detail=f"aca hay un error che{e.response.text}")
-    
-#-----------------------------------------------------------------------------------------------------------------------------------------------------#
-
-
-#COTIZACIONES
-@app.post("/cotizaciones",tags=["cotizacion-controller"])
-async def cotizaciones(cotizar:Annotated[Cotizar,Body(
-    examples=[
-        {
-            "anio": "2013",
-            "iva": "5",
-            "ceroKM": "N",
-            "fechaVigencia": "27/02/2024",
-            "codInfoAuto": "0120444",
-            "codigoPostal": "5000",
-            "gnc": "N",
-            "modalidad": "EX0",
-            "productor": "972",
-            "uso": "1",
-            "modelo": "CRUZE",
-            "marca": "CHEVROLET",
-            "version": "0120444"
-        }
-    ]
-)]):
+        ]
+    )],
+    current_user: User = Depends(get_current_active_user)
+):
     try:
         cliente = Cliente()
         login = cliente.login()
@@ -182,9 +72,8 @@ async def cotizaciones(cotizar:Annotated[Cotizar,Body(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"error interno del servidor: {str(e)}")
 
-
-
-#EMISIONES
+#------------------------------------------------------------EMISIONES----------------------------------------------------------------------#
+    
 @app.post('/emisiones',tags=["emision-controller"])
 async def emisiones(emitir:Annotated[Emitir,Body(
             openapi_examples={
@@ -294,6 +183,7 @@ async def emisiones(emitir:Annotated[Emitir,Body(
             },
         ),
     ],
+    current_user: User = Depends(get_current_active_user)
 ):
     payload = emitir.model_dump()
     cliente = Cliente()
@@ -318,17 +208,11 @@ async def emisiones(emitir:Annotated[Emitir,Body(
         
         result = cliente.post("emisiones", payload)
         return result
-        
-    
-        
-           
 
+#------------------------------------------------------COMMONS----------------------------------------------------------------------------#
 
-
-#---------------------------------------------COMMONS----------------------------------------------------------------------------#
-    
 @app.get("/commons/marcas",tags=["commons-controller"])
-async def marcas(anio:str):
+async def marcas(anio:str,current_user: User = Depends(get_current_active_user)):
     try:
         cliente = Cliente()
         login = cliente.login()
@@ -342,9 +226,8 @@ async def marcas(anio:str):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Error interno del servidor ")
 
-
 @app.get("/commons/modelos",tags=["commons-controller"])
-async def modelo(anio:str,marca:str):
+async def modelo(anio:str,marca:str,current_user: User = Depends(get_current_active_user)):
     try:
         cliente =Cliente()
         login = cliente.login()
@@ -358,12 +241,12 @@ async def modelo(anio:str,marca:str):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Error interno del servidor")
         
-
 @app.get("/commons/versiones",tags=["commons-controller"])
 async def versiones(anio:str,
                     ceroKm:str,
                     marca:str,
-                    modelo:str):
+                    modelo:str,
+                    current_user: User = Depends(get_current_active_user)):
     try:
         cliente = Cliente()
         login = cliente.login()
@@ -379,9 +262,8 @@ async def versiones(anio:str,
     except Exception as e:
         raise HTTPException(status_code=500,detail="Error interno del servidor")
 
-
 @app.get("/commons/bancos",tags=["commons-controller"])
-async def marcas(codigo:str):
+async def marcas(codigo:str,current_user: User = Depends(get_current_active_user)):
     try:
         cliente = Cliente()
         login = cliente.login()
@@ -394,9 +276,8 @@ async def marcas(codigo:str):
     except Exception as e :
         raise HTTPException(status_code=500,detail="Error interno del servidor")
 
-
 @app.get("/commons/tarjetas",tags=["commons-controller"])
-async def tarjetas():
+async def tarjetas(current_user: User = Depends(get_current_active_user)):
     cliente = Cliente()
     login = cliente.login()
 
@@ -406,7 +287,7 @@ async def tarjetas():
         return result
 
 @app.get("/commons/forma-pago",tags=["commons-controller"])
-async def formapago(productor:str):
+async def formapago(productor:str,current_user: User = Depends(get_current_active_user)):
     cliente= Cliente()
     login = cliente.login()
     if login:
@@ -414,20 +295,16 @@ async def formapago(productor:str):
         result = cliente.get("commons/forma-pago",params)
         return result
 
-
-
 @app.get("/commons/valores-gnc",tags=["commons-controller"])
-async def gnc():
+async def gnc(current_user: User = Depends(get_current_active_user)):
     cliente = Cliente()
     login = cliente.login()
     if login:
         result = cliente.get("commons/valores-gnc")
         return result
 
-
-
 @app.get("/commons/modalidades-productor",tags=["commons-controller"])
-async def modalidades(productor:str,vigencia:str ):
+async def modalidades(productor:str,vigencia:str | None = None,current_user: User = Depends(get_current_active_user)):
     cliente = Cliente()
     login = cliente.login()
     if login:
@@ -437,7 +314,7 @@ async def modalidades(productor:str,vigencia:str ):
         return result
 
 @app.get("/commons/actividades",tags=["commons-controller"])
-async def actividades():
+async def actividades(current_user: User = Depends(get_current_active_user)):
     cliente = Cliente()
     login = cliente.login()
     if login:
@@ -445,7 +322,7 @@ async def actividades():
         return result 
 
 @app.get("/commons/responsabilidades",tags=["commons-controller"])
-async def responsabilidades():
+async def responsabilidades(current_user: User = Depends(get_current_active_user)):
     cliente = Cliente()
     login = cliente.login()
     if login:
@@ -454,23 +331,23 @@ async def responsabilidades():
 
 
 @app.get("/commons/sex",tags=["commons-controller"])
-async def sex():
+async def sex(current_user: User = Depends(get_current_active_user)):
     r=[{"codigo":"M","descripcion":"masculino"},{"codigo":"F","descripcion":"femenino"}]
     return r
 
-#--------------------------------------------------------------------------------------------------------------------------------------#
+@app.get("/commons/tipodocumento",tags=["commons-controller"])
+async def document(current_user: User = Depends(get_current_active_user)):
+    r = [{"codigo":"DNI","descripcion":"Documento nacional de identidad"}]
+    return r
 
-    
-#DOCUMENTACION
-
-
-
-
+#-------------------------------------------------------------DOCUMENTACION-------------------------------------------------------------------------#
 
 @app.get("/documentacion/frente-poliza",tags=["documentacion-controller"])
-async def pdf(poliza:str,productor:str):
+async def pdf(poliza:str,productor:str,current_user: User = Depends(get_current_active_user)):
+    
     cliente = Cliente()
     login = cliente.login()
+
     try:
         if login:
             params = {"poliza":poliza,
@@ -489,11 +366,8 @@ async def pdf(poliza:str,productor:str):
         
         raise HTTPException(status_code=500,detail=f"Error interno del servidor: {str(e)}")
 
-
-
-
 @app.get("/documentacion/cupon-pago", tags=["documentacion-controller"])
-async def pdf(poliza: str, productor: str):
+async def pdf(poliza: str, productor: str,current_user: User = Depends(get_current_active_user)):
     cliente = Cliente()
     login = cliente.login()
     try:
@@ -512,9 +386,3 @@ async def pdf(poliza: str, productor: str):
             raise HTTPException(status_code=401, detail="Error de autenticación")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
-
-
-
-
-
-#01874201 nro de poliza ejemplo
